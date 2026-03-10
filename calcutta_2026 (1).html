@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Calcutta Draft 2026</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#07091a;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;}
+  input[type=range]{-webkit-appearance:none;height:4px;border-radius:2px;background:#1a2540;outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;cursor:pointer;}
+  ::-webkit-scrollbar{width:6px;height:6px;}
+  ::-webkit-scrollbar-track{background:#0c1120;}
+  ::-webkit-scrollbar-thumb{background:#1a2540;border-radius:3px;}
+  input:focus{border-color:#f97316 !important;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useMemo,useRef} = React;
+
+const PAYOUTS=[0.01,0.015,0.025,0.03,0.04,0.04];
+const ROUND_LABELS=["R64 Win","R32 Win","S16 Win","E8 Win","F4 Win","Champion"];
+const COV_LABELS=["Sweet 16","Elite 8","Final Four","Champion"];
+const COV_IDX=[2,3,4,5];
+const REGIONS=["East","West","South","Midwest"];
+const SOURCES=["kenpom","evanmiya","teamrankings"];
+const SRC_LABEL={kenpom:"KenPom",evanmiya:"EvanMiya",teamrankings:"TeamRankings"};
+const SRC_COLOR={kenpom:"#f97316",evanmiya:"#22d3ee",teamrankings:"#a78bfa"};
+
+const SEED_BASE={
+  1:[0.993,0.852,0.542,0.280,0.155,0.079],2:[0.948,0.670,0.380,0.178,0.088,0.040],
+  3:[0.853,0.540,0.278,0.117,0.051,0.021],4:[0.793,0.452,0.218,0.088,0.037,0.014],
+  5:[0.648,0.318,0.137,0.048,0.018,0.006],6:[0.630,0.281,0.118,0.042,0.015,0.005],
+  7:[0.602,0.247,0.098,0.035,0.012,0.004],8:[0.513,0.221,0.088,0.030,0.011,0.003],
+  9:[0.487,0.197,0.078,0.026,0.009,0.003],10:[0.398,0.175,0.068,0.022,0.008,0.002],
+  11:[0.373,0.147,0.053,0.017,0.006,0.002],"11b":[0.500,0.147,0.053,0.017,0.006,0.002],
+  12:[0.352,0.118,0.038,0.011,0.003,0.001],13:[0.216,0.065,0.018,0.005,0.001,0.0003],
+  "141516":[0.040,0.008,0.001,0.0002,0.00005,0.00001],
+};
+const mkProbs=k=>{const b=SEED_BASE[k]||SEED_BASE[13];return{kenpom:[...b],evanmiya:[...b],teamrankings:[...b]};};
+
+function generateTeams(){
+  const teams=[];let id=1;
+  const piR=new Set(["South","Midwest"]);
+  REGIONS.forEach(region=>{
+    for(let s=1;s<=10;s++)teams.push({id:id++,seed:s,region,name:`${s}-Seed (${region})`,isBundle:false,probs:mkProbs(s)});
+    if(piR.has(region))teams.push({id:id++,seed:11,region,name:`11-Seed Play-In Bundle (${region})`,isBundle:true,probs:mkProbs("11b")});
+    else teams.push({id:id++,seed:11,region,name:`11-Seed (${region})`,isBundle:false,probs:mkProbs(11)});
+    for(let s=12;s<=13;s++)teams.push({id:id++,seed:s,region,name:`${s}-Seed (${region})`,isBundle:false,probs:mkProbs(s)});
+    teams.push({id:id++,seed:"14-16",region,name:`14/15/16 Bundle (${region})`,isBundle:true,probs:mkProbs("141516")});
+  });
+  return teams;
+}
+
+const evArr=arr=>arr.reduce((s,p,i)=>s+p*PAYOUTS[i],0);
+const wEv=(team,weights)=>{
+  const tot=SOURCES.reduce((s,src)=>s+(weights[src]||0),0);
+  if(!tot)return 0;
+  return SOURCES.reduce((s,src)=>s+evArr(team.probs[src])*(weights[src]||0)/tot,0);
+};
+const mean=arr=>arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:0;
+const iqrFilter=vals=>{
+  if(vals.length<4)return vals;
+  const s=[...vals].sort((a,b)=>a-b);
+  const q1=s[Math.floor(s.length*0.25)],q3=s[Math.floor(s.length*0.75)],iqr=q3-q1;
+  return s.filter(v=>v>=q1-1.5*iqr&&v<=q3+1.5*iqr);
+};
+const calcCoverage=(owned,weights)=>COV_IDX.map(ri=>{
+  if(!owned.length)return 0;
+  return 1-owned.reduce((p,t)=>p*(1-mean(SOURCES.map(src=>t.probs[src][ri]))),1);
+});
+
+const C={bg:"#07091a",surf:"#0c1120",card:"#101828",border:"#1a2540",acc:"#f97316",acc2:"#22d3ee",pur:"#a78bfa",grn:"#4ade80",red:"#f87171",yel:"#fbbf24",txt:"#e2e8f0",mut:"#4b5e7a",wh:"#f8fafc"};
+const sC=seed=>{const n=parseInt(seed);return n<=2?C.acc:n<=4?C.yel:n<=7?C.grn:n<=10?C.acc2:C.pur;};
+const card={backgroundColor:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"14px"};
+const inp={backgroundColor:C.surf,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"8px 12px",color:C.wh,fontSize:"14px",outline:"none",width:"100%",boxSizing:"border-box"};
+const btn=(on,col=C.acc)=>({backgroundColor:on?col:"transparent",border:`1px solid ${on?col:C.border}`,borderRadius:"6px",color:on?(col===C.grn?"#000":C.bg):C.txt,padding:"8px 16px",cursor:"pointer",fontSize:"13px",fontWeight:"600",transition:"all 0.15s",whiteSpace:"nowrap"});
+const $n=n=>"$"+Math.round(n).toLocaleString();
+const pp=n=>(n*100).toFixed(2)+"%";
+const cp=n=>Math.round(n*100)+"%";
+
+function downloadTemplate(teams){
+  const hdr="id,region,seed,name,kenpom_r64,kenpom_r32,kenpom_s16,kenpom_e8,kenpom_f4,kenpom_ncg,evanmiya_r64,evanmiya_r32,evanmiya_s16,evanmiya_e8,evanmiya_f4,evanmiya_ncg,teamrankings_r64,teamrankings_r32,teamrankings_s16,teamrankings_e8,teamrankings_f4,teamrankings_ncg";
+  const rows=teams.map(t=>{const f=src=>t.probs[src].map(p=>(p*100).toFixed(2)).join(",");return `${t.id},${t.region},${t.seed},"${t.name}",${f("kenpom")},${f("evanmiya")},${f("teamrankings")}`;});
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([[hdr,...rows].join("\n")],{type:"text/csv"}));a.download="calcutta_2026.csv";a.click();
+}
+
+function parseCSV(text,teams,setTeams,setMsg){
+  try{
+    const lines=text.trim().split("\n").filter(Boolean);
+    if(lines.length<2){setMsg({ok:false,msg:"CSV appears empty."});return;}
+    let updated=0;const newTeams=[...teams];
+    lines.slice(1).forEach(line=>{
+      const cols=[];let cur="",inQ=false;
+      for(const ch of line+","){if(ch==='"')inQ=!inQ;else if(ch===","&&!inQ){cols.push(cur.trim());cur="";}else cur+=ch;}
+      const id=parseInt(cols[0]);const idx=newTeams.findIndex(t=>t.id===id);if(idx===-1)return;
+      const name=cols[3]||newTeams[idx].name;const nums=cols.slice(4).map(Number);
+      if(nums.length<18||nums.some(isNaN))return;
+      newTeams[idx]={...newTeams[idx],name,probs:{kenpom:nums.slice(0,6).map(v=>v/100),evanmiya:nums.slice(6,12).map(v=>v/100),teamrankings:nums.slice(12,18).map(v=>v/100)}};
+      updated++;
+    });
+    setTeams(newTeams);setMsg({ok:true,msg:`✓ Updated ${updated} of ${teams.length} teams.`});
+  }catch(e){setMsg({ok:false,msg:`Parse error: ${e.message}`});}
+}
+
+function App(){
+  const [teams,setTeams]=useState(()=>generateTeams());
+  const [weights,setWeights]=useState({kenpom:1,evanmiya:1,teamrankings:1});
+  const [potManual,setPotManual]=useState(10000);
+  const [bids,setBids]=useState([]);
+  const [tab,setTab]=useState("draft");
+  const [selId,setSelId]=useState(null);
+  const [bidInput,setBidInput]=useState("");
+  const [search,setSearch]=useState("");
+  const [showDrop,setShowDrop]=useState(false);
+  const [useMkt,setUseMkt]=useState(false);
+  const [setupSrc,setSetupSrc]=useState("kenpom");
+  const [setupSearch,setSetupSearch]=useState("");
+  const [sortBy,setSortBy]=useState("seed");
+  const [importMsg,setImportMsg]=useState(null);
+  const fileRef=useRef();
+
+  const marketPot=useMemo(()=>{
+    const implied=bids.filter(b=>b.price>0).map(b=>{const t=teams.find(t=>t.id===b.teamId);if(!t)return null;const ev=wEv(t,weights);return ev>0.001?b.price/ev:null;}).filter(Boolean);
+    if(implied.length<2)return null;return Math.round(mean(iqrFilter(implied)));
+  },[bids,teams,weights]);
+
+  const pot=useMkt&&marketPot?marketPot:potManual;
+  const ownedTeams=useMemo(()=>teams.filter(t=>bids.some(b=>b.teamId===t.id&&b.isOwned)),[teams,bids]);
+  const totalSpent=useMemo(()=>bids.filter(b=>b.isOwned).reduce((s,b)=>s+(b.price||0),0),[bids]);
+  const totalEV=useMemo(()=>ownedTeams.reduce((s,t)=>s+wEv(t,weights)*pot,0),[ownedTeams,weights,pot]);
+  const coverage=useMemo(()=>calcCoverage(ownedTeams,weights),[ownedTeams,weights]);
+  const selTeam=teams.find(t=>t.id===selId)||null;
+  const covDelta=useMemo(()=>{
+    if(!selTeam||bids.find(b=>b.teamId===selTeam.id&&b.isOwned))return null;
+    const nc=calcCoverage([...ownedTeams,selTeam],weights);return coverage.map((c,i)=>nc[i]-c);
+  },[selTeam,ownedTeams,coverage,weights,bids]);
+  const impliedPot=useMemo(()=>{
+    if(!selTeam||!bidInput)return null;const p=parseInt(bidInput.replace(/\D/g,""));if(!p)return null;
+    const ev=wEv(selTeam,weights);return ev>0.001?Math.round(p/ev):null;
+  },[selTeam,bidInput,weights]);
+
+  const getBid=id=>bids.find(b=>b.teamId===id);
+  const logBid=(teamId,price,isOwned=false)=>{
+    const p=parseInt(String(price).replace(/\D/g,""));if(!p||!teamId)return;
+    setBids(prev=>{const i=prev.findIndex(b=>b.teamId===teamId);if(i>=0)return prev.map((b,j)=>j===i?{...b,price:p,isOwned}:b);return[...prev,{teamId,price:p,isOwned}];});
+  };
+  const submitBid=isOwned=>{logBid(selId,bidInput,isOwned);setBidInput("");};
+
+  const sortedTeams=useMemo(()=>{
+    const q=search.toLowerCase();const f=q?teams.filter(t=>t.name.toLowerCase().includes(q)):teams;
+    return sortBy==="ev"?[...f].sort((a,b)=>wEv(b,weights)-wEv(a,weights)):f;
+  },[teams,search,sortBy,weights]);
+  const setupTeams=useMemo(()=>{const q=setupSearch.toLowerCase();return q?teams.filter(t=>t.name.toLowerCase().includes(q)):teams;},[teams,setupSearch]);
+
+  // ── SETUP ──────────────────────────────────────────────────────
+  const setupView=(
+    <div style={{overflowY:"auto",height:"calc(100vh - 52px)",display:"flex",justifyContent:"center"}}>
+    <div style={{padding:"16px",width:"100%",maxWidth:"1400px"}}>      <div style={{...card,marginBottom:"16px",background:`linear-gradient(135deg,${C.card} 0%,#0d1f3a 100%)`,border:`1px solid ${C.acc}44`}}>
+        <div style={{display:"flex",gap:"12px",alignItems:"flex-start"}}>
+          <div style={{fontSize:"28px"}}>📅</div>
+          <div style={{flex:1}}>
+            <div style={{color:C.acc,fontWeight:"700",fontSize:"15px",marginBottom:"6px"}}>Selection Sunday is March 16th</div>
+            <div style={{color:C.txt,fontSize:"13px",lineHeight:"1.7",marginBottom:"12px"}}>
+              After the bracket drops: <strong style={{color:C.acc2}}>1)</strong> Download the CSV template &nbsp;
+              <strong style={{color:C.acc2}}>2)</strong> Fill in team names and probabilities from KenPom, EvanMiya, and TeamRankings &nbsp;
+              <strong style={{color:C.acc2}}>3)</strong> Upload it back here. Enter probs as percentages (e.g. <span style={{fontFamily:"monospace",color:C.acc}}>99.3</span>). Columns: R64win R32win S16win E8win F4win NCGwin.
+            </div>
+            <div style={{display:"flex",gap:"8px",flexWrap:"wrap",alignItems:"center"}}>
+              <button onClick={()=>downloadTemplate(teams)} style={{...btn(true,C.acc2),fontSize:"13px"}}>⬇ Download CSV Template</button>
+              <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{...btn(true,C.grn),fontSize:"13px"}}>⬆ Upload Filled CSV</button>
+              <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{
+                const f=e.target.files[0];if(!f)return;
+                const r=new FileReader();r.onload=ev=>parseCSV(ev.target.result,teams,setTeams,setImportMsg);r.readAsText(f);e.target.value="";
+              }}/>
+              {importMsg&&<span style={{fontSize:"12px",color:importMsg.ok?C.grn:C.red,fontWeight:"600"}}>{importMsg.msg}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{...card,marginBottom:"16px"}}>
+        <div style={{color:C.wh,fontWeight:"700",fontSize:"14px",marginBottom:"14px",letterSpacing:"0.05em"}}>⚖️ SOURCE WEIGHTS</div>
+        <div style={{display:"flex",gap:"24px",flexWrap:"wrap"}}>
+          {SOURCES.map(src=>(
+            <div key={src} style={{minWidth:"200px",flex:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:"6px"}}>
+                <span style={{color:SRC_COLOR[src],fontWeight:"700",fontSize:"13px"}}>{SRC_LABEL[src]}</span>
+                <span style={{color:C.wh,fontWeight:"800",fontFamily:"monospace"}}>{weights[src].toFixed(1)}×</span>
+              </div>
+              <input type="range" min="0" max="3" step="0.1" value={weights[src]}
+                onChange={e=>setWeights(p=>({...p,[src]:parseFloat(e.target.value)}))}
+                style={{width:"100%",accentColor:SRC_COLOR[src],cursor:"pointer"}}/>
+              <div style={{color:C.mut,fontSize:"11px",marginTop:"2px"}}>
+                {weights[src]===0?"Disabled":weights[src]<0.8?"Low weight":weights[src]>2?"High weight":"Standard"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:"8px",marginBottom:"12px",alignItems:"center",flexWrap:"wrap"}}>
+        <input placeholder="Search teams..." value={setupSearch} onChange={e=>setSetupSearch(e.target.value)} style={{...inp,flex:1,minWidth:"180px",padding:"6px 12px"}}/>
+        <span style={{color:C.mut,fontSize:"12px"}}>Editing source:</span>
+        {SOURCES.map(src=><button key={src} onClick={()=>setSetupSrc(src)} style={btn(setupSrc===src,SRC_COLOR[src])}>{SRC_LABEL[src]}</button>)}
+      </div>
+
+      <div style={{...card,padding:0,overflow:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:"13px"}}>
+          <thead>
+            <tr style={{borderBottom:`1px solid ${C.border}`,backgroundColor:C.surf}}>
+              <th style={{textAlign:"left",padding:"10px 12px",color:C.mut,fontWeight:"600",width:"55px"}}>Seed</th>
+              <th style={{textAlign:"left",padding:"10px 12px",color:C.mut,fontWeight:"600",width:"75px"}}>Region</th>
+              <th style={{textAlign:"left",padding:"10px 12px",color:C.mut,fontWeight:"600",minWidth:"180px"}}>Team Name</th>
+              <th style={{textAlign:"left",padding:"10px 12px",color:SRC_COLOR[setupSrc],fontWeight:"600",minWidth:"280px"}}>{SRC_LABEL[setupSrc]} — R64 R32 S16 E8 F4 NCG (as %)</th>
+              <th style={{textAlign:"right",padding:"10px 12px",color:C.mut,fontWeight:"600",width:"80px"}}>Wtd EV%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {setupTeams.map(t=>(
+              <tr key={`${t.id}-${setupSrc}`} style={{borderBottom:`1px solid ${C.border}22`}}>
+                <td style={{padding:"5px 12px"}}><span style={{color:sC(t.seed),fontWeight:"700",fontFamily:"monospace"}}>{t.seed}</span>{t.isBundle&&<span style={{color:C.mut,fontSize:"10px",marginLeft:"4px"}}>PKG</span>}</td>
+                <td style={{padding:"5px 12px",color:C.mut,fontSize:"12px"}}>{t.region}</td>
+                <td style={{padding:"4px 6px"}}>
+                  <input value={t.name} onChange={e=>setTeams(prev=>prev.map(x=>x.id===t.id?{...x,name:e.target.value}:x))} style={{...inp,padding:"4px 8px",fontSize:"12px"}}/>
+                </td>
+                <td style={{padding:"4px 6px"}}>
+                  <input key={`${t.id}-${setupSrc}`} defaultValue={t.probs[setupSrc].map(p=>(p*100).toFixed(1)).join(" ")} placeholder="e.g. 99.3 85.2 54.2 28.0 15.5 7.9"
+                    onBlur={e=>{
+                      const vals=e.target.value.split(/[\s,]+/).map(Number).filter(v=>!isNaN(v)&&v>=0);
+                      if(vals.length===6)setTeams(prev=>prev.map(x=>x.id===t.id?{...x,probs:{...x.probs,[setupSrc]:vals.map(v=>v/100)}}:x));
+                    }}
+                    style={{...inp,padding:"4px 8px",fontSize:"12px",fontFamily:"monospace"}}/>
+                </td>
+                <td style={{padding:"5px 12px",textAlign:"right",fontFamily:"monospace",fontWeight:"700",color:C.acc}}>{pp(wEv(t,weights))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    </div>
+  );
+
+  // ── POT PANEL ──────────────────────────────────────────────────
+  const potPanel=(
+    <div style={{width:"232px",flexShrink:0,display:"flex",flexDirection:"column",gap:"10px",overflowY:"auto"}}>
+      <div style={card}>
+        <div style={{color:C.acc,fontWeight:"700",fontSize:"12px",letterSpacing:"0.08em",marginBottom:"12px"}}>💰 POT ESTIMATOR</div>
+        <div style={{marginBottom:"10px"}}>
+          <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.08em",marginBottom:"4px"}}>MANUAL ESTIMATE</div>
+          <input type="number" value={potManual} onChange={e=>setPotManual(parseInt(e.target.value)||0)}
+            style={{...inp,fontFamily:"monospace",fontWeight:"700",fontSize:"18px",color:!useMkt?C.acc:C.mut,textAlign:"right"}}/>
+        </div>
+        <div style={{marginBottom:"12px"}}>
+          <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.08em",marginBottom:"4px"}}>
+            MARKET ESTIMATE <span style={{color:C.acc2,marginLeft:"4px"}}>{bids.length} bid{bids.length!==1?"s":""} logged</span>
+          </div>
+          <div style={{...inp,fontFamily:"monospace",fontWeight:"700",fontSize:"18px",color:useMkt?C.acc2:C.mut,textAlign:"right",cursor:"default",display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+            {marketPot?$n(marketPot):<span style={{color:C.mut,fontSize:"12px"}}>Need 2+ bids</span>}
+          </div>
+          <div style={{color:C.mut,fontSize:"10px",marginTop:"3px"}}>IQR outlier-filtered from observed bids</div>
+        </div>
+        <div style={{display:"flex",gap:"6px",marginBottom:"12px"}}>
+          <button onClick={()=>setUseMkt(false)} style={{...btn(!useMkt),flex:1,fontSize:"12px",padding:"6px 8px"}}>Manual</button>
+          <button onClick={()=>setUseMkt(true)} disabled={!marketPot} style={{...btn(useMkt,C.acc2),flex:1,fontSize:"12px",padding:"6px 8px",opacity:marketPot?1:0.4}}>Market</button>
+        </div>
+        <div style={{padding:"10px",backgroundColor:`${C.acc}1a`,borderRadius:"8px",border:`1px solid ${C.acc}44`,textAlign:"center"}}>
+          <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.1em",marginBottom:"2px"}}>ACTIVE POT</div>
+          <div style={{fontFamily:"monospace",fontWeight:"900",fontSize:"26px",color:C.acc}}>{$n(pot)}</div>
+          <div style={{color:C.mut,fontSize:"10px"}}>{useMkt?"market-calibrated":"manual estimate"}</div>
+        </div>
+      </div>
+      <div style={{...card,flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
+        <div style={{color:C.acc,fontWeight:"700",fontSize:"12px",letterSpacing:"0.08em",marginBottom:"10px"}}>📋 BID LOG</div>
+        <div style={{overflowY:"auto",flex:1}}>
+          {bids.length===0?(
+            <div style={{color:C.mut,fontSize:"12px",textAlign:"center",padding:"20px 8px",lineHeight:"1.6"}}>
+              No bids yet. Log prices as teams sell to calibrate the market pot estimate.
+            </div>
+          ):[...bids].reverse().map((b,i)=>{
+            const t=teams.find(t=>t.id===b.teamId);if(!t)return null;
+            const ev=wEv(t,weights);const impl=ev>0.001?Math.round(b.price/ev):null;
+            return(
+              <div key={i} style={{padding:"7px 0",borderBottom:`1px solid ${C.border}44`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:"12px",fontWeight:"600",color:b.isOwned?C.grn:C.txt}}>{b.isOwned&&"✓ "}{t.name}</div>
+                  <div style={{fontSize:"10px",color:C.mut}}>{impl?`→ ${$n(impl)} implied pot`:"—"}</div>
+                </div>
+                <div style={{fontFamily:"monospace",fontWeight:"700",color:C.yel,fontSize:"13px"}}>{$n(b.price)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── TEAM EVALUATOR ─────────────────────────────────────────────
+  const fairBid=selTeam?wEv(selTeam,weights)*pot:0;
+
+  const bidEntryBlock=selTeam&&(
+    <div style={{...card,marginBottom:"10px",border:`1px solid ${C.yel}44`,backgroundColor:"#161e10"}}>
+      {/* Team identity + fair bid */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px",gap:"8px",flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+          <span style={{backgroundColor:sC(selTeam.seed),color:"#000",fontWeight:"900",fontSize:"16px",borderRadius:"6px",padding:"2px 9px",fontFamily:"monospace"}}>#{selTeam.seed}</span>
+          <div>
+            <div style={{fontWeight:"700",fontSize:"15px",color:C.wh}}>{selTeam.name}</div>
+            <div style={{color:C.mut,fontSize:"11px"}}>{selTeam.region}{selTeam.isBundle?" · Bundle":""}</div>
+          </div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.06em"}}>FAIR BID</div>
+          <div style={{fontFamily:"monospace",fontWeight:"900",fontSize:"28px",color:C.yel,lineHeight:1}}>{$n(fairBid)}</div>
+          <div style={{color:C.mut,fontSize:"11px"}}>EV: <span style={{color:C.acc,fontWeight:"600"}}>{pp(wEv(selTeam,weights))}</span></div>
+        </div>
+      </div>
+      {/* Bid input + buttons */}
+      <div style={{marginBottom:"8px"}}>
+        <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.08em",marginBottom:"5px"}}>ENTER FINAL BID PRICE</div>
+        <input placeholder="e.g. 250" value={bidInput} onChange={e=>setBidInput(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&submitBid(false)}
+          style={{...inp,fontFamily:"monospace",fontWeight:"700",fontSize:"20px",marginBottom:"8px"}}
+          autoFocus/>
+        <div style={{display:"flex",gap:"8px"}}>
+          <button onClick={()=>submitBid(false)}
+            style={{flex:1,padding:"11px",backgroundColor:"transparent",border:`1px solid ${C.yel}77`,borderRadius:"6px",color:C.yel,fontWeight:"700",fontSize:"13px",cursor:"pointer"}}>
+            Someone Else Won
+          </button>
+          <button onClick={()=>submitBid(true)}
+            style={{flex:1,padding:"11px",backgroundColor:C.grn,border:"none",borderRadius:"6px",color:"#000",fontWeight:"700",fontSize:"13px",cursor:"pointer"}}>
+            ✓ I Won It!
+          </button>
+        </div>
+      </div>
+      {impliedPot&&(
+        <div style={{fontSize:"11px",color:C.mut,marginTop:"4px"}}>
+          This bid implies total pot: <span style={{color:C.acc2,fontWeight:"700",fontFamily:"monospace"}}>{$n(impliedPot)}</span>
+        </div>
+      )}
+      {getBid(selTeam.id)&&(
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",marginTop:"8px",backgroundColor:getBid(selTeam.id).isOwned?`${C.grn}1a`:`${C.yel}0d`,borderRadius:"6px",border:`1px solid ${getBid(selTeam.id).isOwned?C.grn:C.yel}44`}}>
+          <span style={{fontSize:"12px",fontWeight:"600",color:getBid(selTeam.id).isOwned?C.grn:C.yel}}>
+            {getBid(selTeam.id).isOwned?"✓ You own this":"📝 Logged"} — {$n(getBid(selTeam.id).price)}
+          </span>
+          <div style={{display:"flex",gap:"5px"}}>
+            {!getBid(selTeam.id).isOwned&&(
+              <button onClick={()=>setBids(p=>p.map(b=>b.teamId===selTeam.id?{...b,isOwned:true}:b))}
+                style={{...btn(true,C.grn),padding:"3px 9px",fontSize:"11px"}}>Mark Mine</button>
+            )}
+            <button onClick={()=>setBids(p=>p.filter(b=>b.teamId!==selTeam.id))}
+              style={{...btn(false),padding:"3px 9px",fontSize:"11px",color:C.red,borderColor:`${C.red}55`}}>Remove</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const analyticsBlock=selTeam&&(
+    <div style={{...card,flex:1,overflowY:"auto"}}>
+      {/* Per-source EV */}
+      <div style={{marginBottom:"14px"}}>
+        <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.08em",marginBottom:"8px"}}>EV% BY SOURCE</div>
+        <div style={{display:"flex",gap:"7px"}}>
+          {SOURCES.map(src=>{
+            const ev=evArr(selTeam.probs[src]);
+            return(
+              <div key={src} style={{flex:1,backgroundColor:C.surf,borderRadius:"8px",padding:"9px 6px",border:`1px solid ${SRC_COLOR[src]}44`,textAlign:"center"}}>
+                <div style={{color:SRC_COLOR[src],fontWeight:"700",fontSize:"10px",marginBottom:"3px"}}>{SRC_LABEL[src]}</div>
+                <div style={{fontFamily:"monospace",fontWeight:"800",fontSize:"15px",color:C.wh}}>{pp(ev)}</div>
+                <div style={{color:C.mut,fontSize:"10px",marginTop:"2px"}}>{$n(ev*pot)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Round breakdown */}
+      <div style={{marginBottom:"14px"}}>
+        <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.08em",marginBottom:"8px"}}>ROUND-BY-ROUND (avg across sources)</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:"4px"}}>
+          {ROUND_LABELS.map((label,i)=>{
+            const avgP=mean(SOURCES.map(src=>selTeam.probs[src][i]));
+            const contrib=avgP*PAYOUTS[i];
+            return(
+              <div key={i} style={{textAlign:"center",backgroundColor:C.surf,borderRadius:"6px",padding:"7px 3px",border:`1px solid ${C.border}`}}>
+                <div style={{color:C.mut,fontSize:"9px",marginBottom:"3px",lineHeight:1.2}}>{label}</div>
+                <div style={{fontFamily:"monospace",fontWeight:"700",fontSize:"13px",color:C.acc2}}>{cp(avgP)}</div>
+                <div style={{color:C.mut,fontSize:"9px",marginTop:"2px"}}>+{(contrib*100).toFixed(2)}%</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Portfolio fit */}
+      {covDelta&&(()=>{
+        const s16delta=covDelta[0],e8delta=covDelta[1];
+        const s16after=coverage[0]+s16delta,e8after=coverage[1]+e8delta;
+        const s16contrib=(coverage[0]<0.7&&s16delta>0.05)?Math.min(0.06,s16delta*0.35):0;
+        const e8contrib=(coverage[1]<0.4&&e8delta>0.03)?Math.min(0.06,e8delta*0.55):0;
+        const modifier=Math.min(0.10,Math.max(-0.08,s16contrib+e8contrib));
+        const modPct=Math.round(modifier*100);
+        const modColor=modPct>4?C.grn:modPct>1?C.yel:modPct<-2?C.red:C.mut;
+        const modLabel=modPct>4?"fills a gap — slight premium reasonable":modPct>1?"minor gap coverage":modPct<-2?"redundant — lean toward fair value":"neutral portfolio fit";
+        return(
+          <div style={{padding:"12px",backgroundColor:`${C.pur}0d`,borderRadius:"8px",border:`1px solid ${C.pur}33`}}>
+            <div style={{color:C.pur,fontWeight:"700",fontSize:"11px",letterSpacing:"0.06em",marginBottom:"10px"}}>📈 PORTFOLIO FIT</div>
+            <div style={{display:"flex",gap:"8px",marginBottom:"8px"}}>
+              {[{label:"Sweet 16",delta:s16delta,after:s16after,target:0.7},{label:"Elite 8",delta:e8delta,after:e8after,target:0.4}].map(({label,delta,after,target})=>{
+                const fillsGap=(target-(after-delta))>0.1&&delta>0.03;
+                const col=fillsGap?C.grn:delta>0.02?C.yel:C.mut;
+                return(
+                  <div key={label} style={{flex:1,backgroundColor:C.surf,borderRadius:"8px",padding:"9px",border:`1px solid ${col}44`}}>
+                    <div style={{color:col,fontWeight:"700",fontSize:"11px",marginBottom:"5px"}}>{label}</div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:"4px"}}>
+                      <span style={{color:C.mut,fontSize:"10px"}}>Now → After</span>
+                      <span style={{fontFamily:"monospace",fontSize:"12px",color:C.txt}}>{cp(after-delta)} → <span style={{color:col,fontWeight:"800"}}>{cp(after)}</span></span>
+                    </div>
+                    <div style={{backgroundColor:C.card,borderRadius:"4px",height:"4px",overflow:"hidden"}}>
+                      <div style={{height:"100%",borderRadius:"4px",backgroundColor:col,width:`${Math.min(100,after*100)}%`,transition:"width 0.3s"}}/>
+                    </div>
+                    <div style={{color:C.mut,fontSize:"9px",marginTop:"3px"}}>target {cp(target)}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{display:"flex",gap:"8px",marginBottom:"8px"}}>
+              {[{label:"Final Four",i:2},{label:"Champion",i:3}].map(({label,i})=>(
+                <div key={label} style={{flex:1,display:"flex",justifyContent:"space-between",padding:"4px 8px",backgroundColor:C.card,borderRadius:"5px"}}>
+                  <span style={{color:C.mut,fontSize:"10px"}}>{label}</span>
+                  <span style={{fontFamily:"monospace",fontSize:"10px",color:C.mut}}>+{cp(covDelta[i])} → {cp(coverage[i]+covDelta[i])}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",backgroundColor:C.card,borderRadius:"6px",border:`1px solid ${modColor}33`}}>
+              <span style={{fontSize:"11px",color:C.mut}}><span style={{color:modColor,fontWeight:"600"}}>Portfolio note:</span> {modLabel}</span>
+              {modPct!==0&&<span style={{fontFamily:"monospace",fontWeight:"700",fontSize:"12px",color:modColor,marginLeft:"10px",whiteSpace:"nowrap"}}>{modPct>0?"+":""}{modPct}% → {$n(Math.round(fairBid*(1+modifier)))}</span>}
+            </div>
+          </div>
+        );
+      })()}
+      {getBid(selTeam.id)?.isOwned&&(
+        <div style={{marginTop:"10px",padding:"8px 12px",backgroundColor:`${C.grn}11`,borderRadius:"8px",border:`1px solid ${C.grn}33`}}>
+          <span style={{color:C.grn,fontWeight:"600",fontSize:"12px"}}>✓ Already in your portfolio — coverage above reflects this team</span>
+        </div>
+      )}
+    </div>
+  );
+
+  const teamEvaluator=(
+    <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:"10px"}}>
+      {/* Search bar */}
+      <div style={card}>
+        <div style={{color:C.acc,fontWeight:"700",fontSize:"12px",letterSpacing:"0.08em",marginBottom:"6px"}}>🔍 TEAM EVALUATOR</div>
+        {!selTeam&&<div style={{color:C.mut,fontSize:"12px",marginBottom:"8px"}}>Search for the team currently up for bid, or click any row below.</div>}
+        <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+          <div style={{display:"flex",gap:"8px"}}>
+            <input placeholder="Search for a team..." value={search}
+              onChange={e=>{setSearch(e.target.value);setShowDrop(true);}}
+              onFocus={()=>setShowDrop(true)}
+              style={{...inp,flex:1}}/>
+            {selTeam?(
+              <button onClick={()=>{setSelId(null);setBidInput("");}} style={{...btn(false),padding:"8px 12px",fontSize:"12px",color:C.mut,borderColor:`${C.mut}55`}}>← Back</button>
+            ):(
+              <button onClick={()=>setSortBy(sortBy==="ev"?"seed":"ev")} style={{...btn(sortBy==="ev",C.acc2),padding:"8px 12px",fontSize:"12px"}}>
+                {sortBy==="ev"?"EV ↓":"Seed"}
+              </button>
+            )}
+          </div>
+          {showDrop&&search&&sortedTeams.length>0&&(
+            <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:"84px",backgroundColor:C.surf,border:`1px solid ${C.border}`,borderRadius:"8px",maxHeight:"200px",overflow:"auto",zIndex:100,boxShadow:"0 8px 24px #00000077"}}>
+              {sortedTeams.slice(0,15).map(t=>{
+                const b=getBid(t.id);
+                return(
+                  <div key={t.id} onClick={()=>{setSelId(t.id);setSearch("");setShowDrop(false);}}
+                    style={{padding:"8px 12px",cursor:"pointer",borderBottom:`1px solid ${C.border}22`,display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                    onMouseEnter={e=>e.currentTarget.style.backgroundColor=`${C.acc}1a`}
+                    onMouseLeave={e=>e.currentTarget.style.backgroundColor=""}>
+                    <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+                      <span style={{color:sC(t.seed),fontWeight:"700",fontSize:"12px",fontFamily:"monospace",minWidth:"28px"}}>#{t.seed}</span>
+                      <span style={{color:b?.isOwned?C.grn:C.txt,fontSize:"13px"}}>{b?.isOwned&&"✓ "}{t.name}</span>
+                    </div>
+                    <span style={{fontFamily:"monospace",color:C.acc,fontSize:"12px"}}>{pp(wEv(t,weights))}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {selTeam?(
+        <>
+          {bidEntryBlock}
+          {analyticsBlock}
+        </>
+      ):(
+        <div style={{...card,flex:1,overflowY:"auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
+            <div style={{color:C.mut,fontSize:"11px",letterSpacing:"0.06em"}}>REMAINING TEAMS</div>
+            <div style={{color:C.mut,fontSize:"11px"}}>{sortedTeams.filter(t=>!getBid(t.id)).length} left</div>
+          </div>
+          {sortedTeams.filter(t=>!getBid(t.id)).map(t=>{
+            const ev=wEv(t,weights);
+            return(
+              <div key={t.id} onClick={()=>setSelId(t.id)}
+                style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",cursor:"pointer",borderRadius:"6px",marginBottom:"2px"}}
+                onMouseEnter={e=>e.currentTarget.style.backgroundColor=`${C.acc}11`}
+                onMouseLeave={e=>e.currentTarget.style.backgroundColor=""}>
+                <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+                  <span style={{color:sC(t.seed),fontWeight:"700",fontSize:"12px",fontFamily:"monospace",minWidth:"36px"}}>#{t.seed}</span>
+                  <div>
+                    <div style={{fontSize:"13px",color:C.txt}}>{t.name}</div>
+                    <div style={{fontSize:"10px",color:C.mut}}>{t.region}{t.isBundle?" · Bundle":""}</div>
+                  </div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontFamily:"monospace",fontWeight:"700",fontSize:"13px",color:C.acc}}>{pp(ev)}</div>
+                  <div style={{fontSize:"10px",color:C.mut}}>{$n(ev*pot)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── PORTFOLIO PANEL ────────────────────────────────────────────
+  const portfolioPanel=(
+    <div style={{width:"232px",flexShrink:0,display:"flex",flexDirection:"column",gap:"10px",overflowY:"auto"}}>
+      <div style={card}>
+        <div style={{color:C.grn,fontWeight:"700",fontSize:"12px",letterSpacing:"0.08em",marginBottom:"12px"}}>📊 MY PORTFOLIO</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"7px",marginBottom:"14px"}}>
+          {[{label:"TEAMS",val:ownedTeams.length,color:C.acc2},{label:"SPENT",val:$n(totalSpent),color:C.yel},{label:"TOTAL EV",val:$n(totalEV),color:C.grn},{label:"EXP P&L",val:$n(totalEV-totalSpent),color:totalEV>=totalSpent?C.grn:C.red}].map(({label,val,color})=>(
+            <div key={label} style={{backgroundColor:C.surf,borderRadius:"7px",padding:"9px 8px",textAlign:"center",border:`1px solid ${C.border}`}}>
+              <div style={{color:C.mut,fontSize:"9px",letterSpacing:"0.08em",marginBottom:"3px"}}>{label}</div>
+              <div style={{fontFamily:"monospace",fontWeight:"800",fontSize:"15px",color}}>{val}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.08em",marginBottom:"8px"}}>COVERAGE PROFILE</div>
+        {COV_LABELS.map((label,i)=>(
+          <div key={i} style={{marginBottom:"8px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:"3px"}}>
+              <span style={{color:C.txt,fontSize:"12px"}}>{label}</span>
+              <span style={{fontFamily:"monospace",fontWeight:"700",fontSize:"12px",color:coverage[i]>0.5?C.grn:coverage[i]>0.2?C.yel:C.mut}}>{cp(coverage[i])}</span>
+            </div>
+            <div style={{backgroundColor:C.surf,borderRadius:"4px",height:"5px",overflow:"hidden",border:`1px solid ${C.border}`}}>
+              <div style={{height:"100%",borderRadius:"4px",backgroundColor:coverage[i]>0.5?C.grn:coverage[i]>0.2?C.yel:C.mut,width:`${Math.min(100,coverage[i]*100)}%`,transition:"width 0.4s ease"}}/>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{...card,flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
+        <div style={{color:C.grn,fontWeight:"700",fontSize:"12px",letterSpacing:"0.08em",marginBottom:"10px"}}>OWNED TEAMS</div>
+        <div style={{overflowY:"auto",flex:1}}>
+          {ownedTeams.length===0?(
+            <div style={{color:C.mut,fontSize:"12px",textAlign:"center",padding:"20px 0"}}>No teams owned yet</div>
+          ):ownedTeams.map(t=>{
+            const b=getBid(t.id);const ev=wEv(t,weights)*pot;const profit=ev-(b?.price||0);
+            return(
+              <div key={t.id} onClick={()=>setSelId(t.id)}
+                style={{padding:"9px",marginBottom:"6px",backgroundColor:C.surf,borderRadius:"7px",cursor:"pointer",border:`1px solid ${C.grn}22`}}
+                onMouseEnter={e=>e.currentTarget.style.backgroundColor=`${C.grn}11`}
+                onMouseLeave={e=>e.currentTarget.style.backgroundColor=C.surf}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:"3px"}}>
+                  <span style={{color:sC(t.seed),fontWeight:"700",fontFamily:"monospace",fontSize:"12px"}}>#{t.seed}</span>
+                  <span style={{fontFamily:"monospace",fontSize:"11px",color:C.acc}}>{pp(wEv(t,weights))}</span>
+                </div>
+                <div style={{fontSize:"12px",color:C.txt,marginBottom:"3px"}}>{t.name}</div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:"11px"}}>
+                  <span style={{color:C.mut}}>Paid <span style={{color:C.yel,fontWeight:"600"}}>{$n(b?.price||0)}</span></span>
+                  <span style={{color:profit>=0?C.grn:C.red,fontWeight:"600"}}>{profit>=0?"+":""}{$n(profit)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{backgroundColor:C.bg,minHeight:"100vh",color:C.txt,fontFamily:"'Segoe UI',system-ui,sans-serif",fontSize:"14px"}} onClick={()=>setShowDrop(false)}>
+      <div style={{backgroundColor:C.surf,borderBottom:`1px solid ${C.border}`,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:"52px",gap:"12px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
+          <span style={{fontSize:"20px"}}>🏀</span>
+          <div>
+            <div style={{fontWeight:"800",fontSize:"15px",color:C.wh,letterSpacing:"0.04em"}}>CALCUTTA DRAFT <span style={{color:C.acc}}>2026</span></div>
+            <div style={{color:C.mut,fontSize:"10px",letterSpacing:"0.04em"}}>MARCH MADNESS AUCTION TOOL</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+          {tab==="draft"&&(
+            <div style={{color:C.mut,fontSize:"12px",marginRight:"8px"}}>
+              Pot: <span style={{color:C.acc,fontWeight:"700",fontFamily:"monospace"}}>{$n(pot)}</span>
+              {ownedTeams.length>0&&<span style={{marginLeft:"12px"}}>Owned: <span style={{color:C.grn,fontWeight:"700"}}>{ownedTeams.length}</span> &nbsp;EV: <span style={{color:totalEV>=totalSpent?C.grn:C.red,fontWeight:"700",fontFamily:"monospace"}}>{$n(totalEV)}</span></span>}
+            </div>
+          )}
+          <button onClick={()=>setTab("setup")} style={btn(tab==="setup")}>⚙ Setup</button>
+          <button onClick={()=>setTab("draft")} style={btn(tab==="draft",C.acc)}>🏀 Draft Night</button>
+        </div>
+      </div>
+      {tab==="setup"?setupView:(
+        <div style={{height:"calc(100vh - 52px)",overflow:"hidden",display:"flex",justifyContent:"center",backgroundColor:C.bg}}>
+          <div style={{padding:"12px",display:"flex",gap:"10px",width:"100%",maxWidth:"1400px",overflow:"hidden"}}>
+            {potPanel}{teamEvaluator}{portfolioPanel}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

@@ -23,12 +23,12 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-// ---------------------------------------------------------
-// SUPABASE CONFIG — replace with your real values
-// ---------------------------------------------------------
-const SUPABASE_URL = "https://nfswgrghpysenuavzjqw.supabase.co";
+// -------------------------------------------------
+// SUPABASE CONFIG -- replace with your real values
+// -------------------------------------------------
+const SUPABASE_URL = “https://nfswgrghpysenuavzjqw.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_OPXszeoS-mN7kH5S-uiu2g_NCQ5iKGo";
-// ---------------------------------------------------------
+// -------------------------------------------------
 
 let supabaseClient = null;
 try {
@@ -163,7 +163,10 @@ function App(){
         if(payload.eventType==="INSERT"){
           const r=payload.new;
           setBids(prev=>{
-            if(prev.some(b=>b.dbId===r.id))return prev;
+            // Update existing optimistic entry (matched by teamId) with the real dbId
+            const idx=prev.findIndex(b=>b.teamId===r.team_id);
+            if(idx>=0) return prev.map((b,i)=>i===idx?{...b,dbId:r.id}:b);
+            // No optimistic entry — add fresh
             return[...prev,{teamId:r.team_id,price:r.price,isOwned:r.is_owned,dbId:r.id}];
           });
         }
@@ -264,7 +267,7 @@ function App(){
   },[teams,search,sortBy,weights]);
   const setupTeams=useMemo(()=>{const q=setupSearch.toLowerCase();return q?teams.filter(t=>t.name.toLowerCase().includes(q)):teams;},[teams,setupSearch]);
 
-  // -- SETUP ---------------------------------------------------------
+  // ── SETUP ──────────────────────────────────────────────────────
   const setupView=(
     <div style={{overflowY:"auto",height:"calc(100vh - 52px)",display:"flex",justifyContent:"center"}}>
     <div style={{padding:"16px",width:"100%",maxWidth:"1400px"}}>      <div style={{...card,marginBottom:"16px",background:`linear-gradient(135deg,${C.card} 0%,#0d1f3a 100%)`,border:`1px solid ${C.acc}44`}}>
@@ -353,7 +356,7 @@ function App(){
     </div>
   );
 
-  // ── POT PANEL ---------------------------------------------------------
+  // ── POT PANEL ──────────────────────────────────────────────────
   const potPanel=(
     <div style={{width:"232px",flexShrink:0,display:"flex",flexDirection:"column",gap:"10px",overflowY:"auto"}}>
       <div style={card}>
@@ -453,7 +456,7 @@ function App(){
     </div>
   );
 
-  // ── TEAM EVALUATOR ---------------------------------------------------------
+  // ── TEAM EVALUATOR ─────────────────────────────────────────────
   const fairBid=selTeam?wEv(selTeam,weights)*pot:0;
 
   const bidEntryBlock=selTeam&&(
@@ -685,7 +688,7 @@ function App(){
     </div>
   );
 
-  // ── PORTFOLIO PANEL ---------------------------------------------------------
+  // ── PORTFOLIO PANEL ────────────────────────────────────────────
   const portfolioPanel=(
     <div style={{width:"232px",flexShrink:0,display:"flex",flexDirection:"column",gap:"10px",overflowY:"auto"}}>
       <div style={card}>

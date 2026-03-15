@@ -65,9 +65,11 @@ where the product is over all owned teams.
 
 ### Data Sources
 Three probability sources, each providing round-by-round win probabilities:
-- **KenPom** (kenpom.substack.com) — efficiency-based model
-- **EvanMiya** (evanmiya.com) — efficiency-based model  
+- **KenPom** (kenpom.substack.com) — efficiency-based model, the industry standard
+- **Torvik** (barttorvik.com) — efficiency-based model, independent from KenPom
 - **TeamRankings** (teamrankings.com) — market/betting-derived
+
+Neil Paine and EvanMiya were considered but dropped: Neil already composites KenPom and TeamRankings so adds no new signal; EvanMiya is less battle-tested than Torvik. KenPom + Torvik gives two independent analytical models; TeamRankings adds a genuine market-based signal.
 
 Probabilities are entered as percentages (e.g. `99.3` not `0.993`) and stored internally as decimals.
 

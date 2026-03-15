@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -29,7 +30,14 @@ const SUPABASE_URL = "nfswgrghpysenuavzjqw.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_OPXszeoS-mN7kH5S-uiu2g_NCQ5iKGo";
 // ─────────────────────────────────────────────────────────
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let supabase = null;
+try {
+  if (SUPABASE_URL !== "YOUR_PROJECT_URL_HERE" && window.supabase) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch(e) {
+  console.error("Supabase init failed:", e);
+}
 
 const {useState,useMemo,useRef,useEffect} = React;
 
@@ -139,7 +147,7 @@ function App(){
 
   // ── SUPABASE: load bids on mount ───────────────────────────────
   useEffect(()=>{
-    if(SUPABASE_URL==="YOUR_PROJECT_URL_HERE"){setDbStatus("error");return;}
+    if(!supabase){setDbStatus("error");return;}
     async function loadBids(){
       const{data,error}=await supabase.from("bids").select("*").order("created_at",{ascending:true});
       if(error){console.error(error);setDbStatus("error");return;}
@@ -175,6 +183,7 @@ function App(){
 
   // ── SUPABASE: write helpers ────────────────────────────────────
   async function dbUpsertBid(teamId,price,isOwned){
+    if(!supabase)return;
     const existing=bids.find(b=>b.teamId===teamId);
     if(existing?.dbId){
       await supabase.from("bids").update({price,is_owned:isOwned}).eq("id",existing.dbId);
@@ -183,6 +192,7 @@ function App(){
     }
   }
   async function dbDeleteBid(teamId){
+    if(!supabase)return;
     const existing=bids.find(b=>b.teamId===teamId);
     if(existing?.dbId)await supabase.from("bids").delete().eq("id",existing.dbId);
   }

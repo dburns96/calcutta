@@ -109,7 +109,7 @@ function downloadTemplate(teams){
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([[hdr,...rows].join("\n")],{type:"text/csv"}));a.download="calcutta_2026.csv";a.click();
 }
 
-function parseCSV(text,teams,setTeams,setMsg){
+function parseCSV(text,teams,setTeams,setMsg,saveTeamsToDb){
   try{
     const lines=text.trim().split("\n").filter(Boolean);
     if(lines.length<2){setMsg({ok:false,msg:"CSV appears empty."});return;}
@@ -123,7 +123,9 @@ function parseCSV(text,teams,setTeams,setMsg){
       newTeams[idx]={...newTeams[idx],name,probs:{kenpom:nums.slice(0,6).map(v=>v/100),torvik:nums.slice(6,12).map(v=>v/100),teamrankings:nums.slice(12,18).map(v=>v/100)}};
       updated++;
     });
-    setTeams(newTeams);setMsg({ok:true,msg:`✓ Updated ${updated} of ${teams.length} teams.`});
+    setTeams(newTeams);
+    setMsg({ok:true,msg:`✓ Updated ${updated} of ${teams.length} teams. Saving to database...`});
+    if(saveTeamsToDb) saveTeamsToDb(newTeams,setMsg);
   }catch(e){setMsg({ok:false,msg:`Parse error: ${e.message}`});}
 }
 
@@ -146,17 +148,31 @@ function App(){
   const [dbStatus,setDbStatus]=useState("connecting"); // connecting | live | error
   const fileRef=useRef();
 
-  // ── SUPABASE: load bids on mount ───────────────────────────────
+  // ── SUPABASE: load teams + bids on mount ──────────────────────
   useEffect(()=>{
     if(!supabaseClient){setDbStatus("error");return;}
-    async function loadBids(){
+    async function loadData(){
+      // Load teams first
+      const{data:tData,error:tError}=await supabaseClient.from("teams").select("*").order("id",{ascending:true});
+      if(!tError&&tData&&tData.length>0){
+        const loaded=tData.map(r=>({
+          id:r.id, seed:r.seed, region:r.region, name:r.name, isBundle:r.is_bundle,
+          probs:{
+            kenpom:[r.kenpom_r64,r.kenpom_r32,r.kenpom_s16,r.kenpom_e8,r.kenpom_f4,r.kenpom_ncg],
+            torvik:[r.torvik_r64,r.torvik_r32,r.torvik_s16,r.torvik_e8,r.torvik_f4,r.torvik_ncg],
+            teamrankings:[r.teamrankings_r64,r.teamrankings_r32,r.teamrankings_s16,r.teamrankings_e8,r.teamrankings_f4,r.teamrankings_ncg],
+          }
+        }));
+        setTeams(loaded);
+      }
+      // Load bids
       const{data,error}=await supabaseClient.from("bids").select("*").order("created_at",{ascending:true});
       if(error){console.error(error);setDbStatus("error");return;}
       const loaded=data.map(r=>({teamId:r.team_id,price:r.price,isOwned:r.is_owned,dbId:r.id}));
       setBids(loaded);
       setDbStatus("live");
     }
-    loadBids();
+    loadData();
     // Real-time subscription
     const channel=supabaseClient.channel("bids-sync")
       .on("postgres_changes",{event:"*",schema:"public",table:"bids"},payload=>{
@@ -199,6 +215,23 @@ function App(){
     if(!supabaseClient)return;
     const existing=bids.find(b=>b.teamId===teamId);
     if(existing?.dbId)await supabaseClient.from("bids").delete().eq("id",existing.dbId);
+  }
+
+  async function saveTeamsToDb(newTeams,setMsg){
+    if(!supabaseClient)return;
+    const rows=newTeams.map(t=>({
+      id:t.id, region:t.region, seed:t.seed, name:t.name, is_bundle:t.isBundle,
+      kenpom_r64:t.probs.kenpom[0], kenpom_r32:t.probs.kenpom[1], kenpom_s16:t.probs.kenpom[2],
+      kenpom_e8:t.probs.kenpom[3], kenpom_f4:t.probs.kenpom[4], kenpom_ncg:t.probs.kenpom[5],
+      torvik_r64:t.probs.torvik[0], torvik_r32:t.probs.torvik[1], torvik_s16:t.probs.torvik[2],
+      torvik_e8:t.probs.torvik[3], torvik_f4:t.probs.torvik[4], torvik_ncg:t.probs.torvik[5],
+      teamrankings_r64:t.probs.teamrankings[0], teamrankings_r32:t.probs.teamrankings[1], teamrankings_s16:t.probs.teamrankings[2],
+      teamrankings_e8:t.probs.teamrankings[3], teamrankings_f4:t.probs.teamrankings[4], teamrankings_ncg:t.probs.teamrankings[5],
+      updated_at:new Date().toISOString(),
+    }));
+    const{error}=await supabaseClient.from("teams").upsert(rows,{onConflict:"id"});
+    if(error){console.error(error);setMsg({ok:false,msg:"✓ Local update ok but DB save failed: "+error.message});}
+    else setMsg({ok:true,msg:`✓ All teams saved to database — Alex will see these automatically.`});
   }
 
   const marketPotData=useMemo(()=>{
@@ -285,7 +318,7 @@ function App(){
               <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{...btn(true,C.grn),fontSize:"13px"}}>⬆ Upload Filled CSV</button>
               <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{
                 const f=e.target.files[0];if(!f)return;
-                const r=new FileReader();r.onload=ev=>parseCSV(ev.target.result,teams,setTeams,setImportMsg);r.readAsText(f);e.target.value="";
+                const r=new FileReader();r.onload=ev=>parseCSV(ev.target.result,teams,setTeams,setImportMsg,saveTeamsToDb);r.readAsText(f);e.target.value="";
               }}/>
               {importMsg&&<span style={{fontSize:"12px",color:importMsg.ok?C.grn:C.red,fontWeight:"600"}}>{importMsg.msg}</span>}
             </div>

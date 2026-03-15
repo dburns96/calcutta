@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:#07091a;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;}
@@ -26,14 +26,15 @@
 // ─────────────────────────────────────────────────────────
 // SUPABASE CONFIG — replace with your real values
 // ─────────────────────────────────────────────────────────
-const SUPABASE_URL = "nfswgrghpysenuavzjqw.supabase.co";
+const SUPABASE_URL = “https://nfswgrghpysenuavzjqw.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_OPXszeoS-mN7kH5S-uiu2g_NCQ5iKGo";
 // ─────────────────────────────────────────────────────────
 
-let supabase = null;
+let supabaseClient = null;
 try {
-  if (SUPABASE_URL !== "YOUR_PROJECT_URL_HERE" && window.supabase) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  if (SUPABASE_URL !== "YOUR_PROJECT_URL_HERE" && typeof supabase !== "undefined") {
+    const { createClient } = supabase;
+    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
 } catch(e) {
   console.error("Supabase init failed:", e);
@@ -147,9 +148,9 @@ function App(){
 
   // ── SUPABASE: load bids on mount ───────────────────────────────
   useEffect(()=>{
-    if(!supabase){setDbStatus("error");return;}
+    if(!supabaseClient){setDbStatus("error");return;}
     async function loadBids(){
-      const{data,error}=await supabase.from("bids").select("*").order("created_at",{ascending:true});
+      const{data,error}=await supabaseClient.from("bids").select("*").order("created_at",{ascending:true});
       if(error){console.error(error);setDbStatus("error");return;}
       const loaded=data.map(r=>({teamId:r.team_id,price:r.price,isOwned:r.is_owned,dbId:r.id}));
       setBids(loaded);
@@ -157,7 +158,7 @@ function App(){
     }
     loadBids();
     // Real-time subscription
-    const channel=supabase.channel("bids-sync")
+    const channel=supabaseClient.channel("bids-sync")
       .on("postgres_changes",{event:"*",schema:"public",table:"bids"},payload=>{
         if(payload.eventType==="INSERT"){
           const r=payload.new;
@@ -178,23 +179,23 @@ function App(){
         if(status==="SUBSCRIBED")setDbStatus("live");
         if(status==="CLOSED"||status==="CHANNEL_ERROR")setDbStatus("error");
       });
-    return()=>supabase.removeChannel(channel);
+    return()=>supabaseClient.removeChannel(channel);
   },[]);
 
   // ── SUPABASE: write helpers ────────────────────────────────────
   async function dbUpsertBid(teamId,price,isOwned){
-    if(!supabase)return;
+    if(!supabaseClient)return;
     const existing=bids.find(b=>b.teamId===teamId);
     if(existing?.dbId){
-      await supabase.from("bids").update({price,is_owned:isOwned}).eq("id",existing.dbId);
+      await supabaseClient.from("bids").update({price,is_owned:isOwned}).eq("id",existing.dbId);
     } else {
-      await supabase.from("bids").insert({team_id:teamId,price,is_owned:isOwned});
+      await supabaseClient.from("bids").insert({team_id:teamId,price,is_owned:isOwned});
     }
   }
   async function dbDeleteBid(teamId){
-    if(!supabase)return;
+    if(!supabaseClient)return;
     const existing=bids.find(b=>b.teamId===teamId);
-    if(existing?.dbId)await supabase.from("bids").delete().eq("id",existing.dbId);
+    if(existing?.dbId)await supabaseClient.from("bids").delete().eq("id",existing.dbId);
   }
 
   const marketPotData=useMemo(()=>{

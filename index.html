@@ -65,7 +65,7 @@ const mkProbs=k=>{const b=SEED_BASE[k]||SEED_BASE[13];return{kenpom:[...b],torvi
 
 function generateTeams(){
   const teams=[];let id=1;
-  const piR=new Set(["South","Midwest"]);
+  const piR=new Set(["West","Midwest"]);
   REGIONS.forEach(region=>{
     for(let s=1;s<=10;s++)teams.push({id:id++,seed:s,region,name:`${s}-Seed (${region})`,isBundle:false,probs:mkProbs(s)});
     if(piR.has(region))teams.push({id:id++,seed:11,region,name:`11-Seed Play-In Bundle (${region})`,isBundle:true,probs:mkProbs("11b")});

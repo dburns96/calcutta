@@ -47,9 +47,9 @@ const ROUND_LABELS=["R64 Win","R32 Win","S16 Win","E8 Win","F4 Win","Champion"];
 const COV_LABELS=["Sweet 16","Elite 8","Final Four","Champion"];
 const COV_IDX=[2,3,4,5];
 const REGIONS=["East","West","South","Midwest"];
-const SOURCES=["kenpom","torvik","teamrankings"];
-const SRC_LABEL={kenpom:"KenPom",torvik:"Torvik",teamrankings:"TeamRankings"};
-const SRC_COLOR={kenpom:"#f97316",torvik:"#22d3ee",teamrankings:"#a78bfa"};
+const SOURCES=["kenpom","torvik","evanmiya"];
+const SRC_LABEL={kenpom:"KenPom",torvik:"Torvik",evanmiya:"EvanMiya"};
+const SRC_COLOR={kenpom:"#f97316",torvik:"#22d3ee",evanmiya:"#a78bfa"};
 
 const SEED_BASE={
   1:[0.993,0.852,0.542,0.280,0.155,0.079],2:[0.948,0.670,0.380,0.178,0.088,0.040],
@@ -61,7 +61,7 @@ const SEED_BASE={
   12:[0.352,0.118,0.038,0.011,0.003,0.001],13:[0.216,0.065,0.018,0.005,0.001,0.0003],
   "141516":[0.040,0.008,0.001,0.0002,0.00005,0.00001],
 };
-const mkProbs=k=>{const b=SEED_BASE[k]||SEED_BASE[13];return{kenpom:[...b],torvik:[...b],teamrankings:[...b]};};
+const mkProbs=k=>{const b=SEED_BASE[k]||SEED_BASE[13];return{kenpom:[...b],torvik:[...b],evanmiya:[...b]};};
 
 function generateTeams(){
   const teams=[];let id=1;
@@ -104,8 +104,8 @@ const pp=n=>(n*100).toFixed(2)+"%";
 const cp=n=>Math.round(n*100)+"%";
 
 function downloadTemplate(teams){
-  const hdr="id,region,seed,name,kenpom_r64,kenpom_r32,kenpom_s16,kenpom_e8,kenpom_f4,kenpom_ncg,torvik_r64,torvik_r32,torvik_s16,torvik_e8,torvik_f4,torvik_ncg,teamrankings_r64,teamrankings_r32,teamrankings_s16,teamrankings_e8,teamrankings_f4,teamrankings_ncg";
-  const rows=teams.map(t=>{const f=src=>t.probs[src].map(p=>(p*100).toFixed(2)).join(",");return `${t.id},${t.region},${t.seed},"${t.name}",${f("kenpom")},${f("torvik")},${f("teamrankings")}`;});
+  const hdr="id,region,seed,name,kenpom_r64,kenpom_r32,kenpom_s16,kenpom_e8,kenpom_f4,kenpom_ncg,torvik_r64,torvik_r32,torvik_s16,torvik_e8,torvik_f4,torvik_ncg,evanmiya_r64,evanmiya_r32,evanmiya_s16,evanmiya_e8,evanmiya_f4,evanmiya_ncg";
+  const rows=teams.map(t=>{const f=src=>t.probs[src].map(p=>(p*100).toFixed(2)).join(",");return `${t.id},${t.region},${t.seed},"${t.name}",${f("kenpom")},${f("torvik")},${f("evanmiya")}`;});
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([[hdr,...rows].join("\n")],{type:"text/csv"}));a.download="calcutta_2026.csv";a.click();
 }
 
@@ -120,7 +120,7 @@ function parseCSV(text,teams,setTeams,setMsg,saveTeamsToDb){
       const id=parseInt(cols[0]);const idx=newTeams.findIndex(t=>t.id===id);if(idx===-1)return;
       const name=cols[3]||newTeams[idx].name;const nums=cols.slice(4).map(Number);
       if(nums.length<18||nums.some(isNaN))return;
-      newTeams[idx]={...newTeams[idx],name,probs:{kenpom:nums.slice(0,6).map(v=>v/100),torvik:nums.slice(6,12).map(v=>v/100),teamrankings:nums.slice(12,18).map(v=>v/100)}};
+      newTeams[idx]={...newTeams[idx],name,probs:{kenpom:nums.slice(0,6).map(v=>v/100),torvik:nums.slice(6,12).map(v=>v/100),evanmiya:nums.slice(12,18).map(v=>v/100)}};
       updated++;
     });
     setTeams(newTeams);
@@ -131,7 +131,7 @@ function parseCSV(text,teams,setTeams,setMsg,saveTeamsToDb){
 
 function App(){
   const [teams,setTeams]=useState(()=>generateTeams());
-  const [weights,setWeights]=useState({kenpom:1,torvik:1,teamrankings:1});
+  const [weights,setWeights]=useState({kenpom:1,torvik:1,evanmiya:1});
   const [potManual,setPotManual]=useState(10000);
   const [bids,setBids]=useState([]);
   const [tab,setTab]=useState("draft");
@@ -160,7 +160,7 @@ function App(){
           probs:{
             kenpom:[r.kenpom_r64,r.kenpom_r32,r.kenpom_s16,r.kenpom_e8,r.kenpom_f4,r.kenpom_ncg],
             torvik:[r.torvik_r64,r.torvik_r32,r.torvik_s16,r.torvik_e8,r.torvik_f4,r.torvik_ncg],
-            teamrankings:[r.teamrankings_r64,r.teamrankings_r32,r.teamrankings_s16,r.teamrankings_e8,r.teamrankings_f4,r.teamrankings_ncg],
+            evanmiya:[r.evanmiya_r64,r.evanmiya_r32,r.evanmiya_s16,r.evanmiya_e8,r.evanmiya_f4,r.evanmiya_ncg],
           }
         }));
         setTeams(loaded);
@@ -225,8 +225,8 @@ function App(){
       kenpom_e8:t.probs.kenpom[3], kenpom_f4:t.probs.kenpom[4], kenpom_ncg:t.probs.kenpom[5],
       torvik_r64:t.probs.torvik[0], torvik_r32:t.probs.torvik[1], torvik_s16:t.probs.torvik[2],
       torvik_e8:t.probs.torvik[3], torvik_f4:t.probs.torvik[4], torvik_ncg:t.probs.torvik[5],
-      teamrankings_r64:t.probs.teamrankings[0], teamrankings_r32:t.probs.teamrankings[1], teamrankings_s16:t.probs.teamrankings[2],
-      teamrankings_e8:t.probs.teamrankings[3], teamrankings_f4:t.probs.teamrankings[4], teamrankings_ncg:t.probs.teamrankings[5],
+      evanmiya_r64:t.probs.evanmiya[0], evanmiya_r32:t.probs.evanmiya[1], evanmiya_s16:t.probs.evanmiya[2],
+      evanmiya_e8:t.probs.evanmiya[3], evanmiya_f4:t.probs.evanmiya[4], evanmiya_ncg:t.probs.evanmiya[5],
       updated_at:new Date().toISOString(),
     }));
     const{error}=await supabaseClient.from("teams").upsert(rows,{onConflict:"id"});
@@ -310,7 +310,7 @@ function App(){
             <div style={{color:C.acc,fontWeight:"700",fontSize:"15px",marginBottom:"6px"}}>Selection Sunday is March 16th</div>
             <div style={{color:C.txt,fontSize:"13px",lineHeight:"1.7",marginBottom:"12px"}}>
               After the bracket drops: <strong style={{color:C.acc2}}>1)</strong> Download the CSV template &nbsp;
-              <strong style={{color:C.acc2}}>2)</strong> Fill in team names and probabilities from KenPom, Torvik, and TeamRankings &nbsp;
+              <strong style={{color:C.acc2}}>2)</strong> Fill in team names and probabilities from KenPom, Torvik, and EvanMiya &nbsp;
               <strong style={{color:C.acc2}}>3)</strong> Upload it back here. Enter probs as percentages (e.g. <span style={{fontFamily:"monospace",color:C.acc}}>99.3</span>). Columns: R64win R32win S16win E8win F4win NCGwin.
             </div>
             <div style={{display:"flex",gap:"8px",flexWrap:"wrap",alignItems:"center"}}>
